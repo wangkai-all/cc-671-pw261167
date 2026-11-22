@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>套餐偏好分析 · 本地虚构样本</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231baf7a'/%3E%3Crect x='8' y='17' width='4' height='7' rx='1.5' fill='white'/%3E%3Crect x='14' y='12' width='4' height='12' rx='1.5' fill='white'/%3E%3Crect x='20' y='8' width='4' height='16' rx='1.5' fill='white'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <h1>套餐偏好分析</h1>
+        <p class="sub">历史选择 → 带价格与属性的多项选择模型 → 菜单情景与组合搜索</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span class="badge fictional">本地虚构样本</span>
+      <label class="field inline">
+        <span>样本</span>
+        <select id="sample-select" aria-label="选择样本"></select>
+      </label>
+      <button id="theme-toggle" class="ghost" type="button" aria-label="切换深浅色">深浅色</button>
+    </div>
+  </header>
+
+  <div id="global-status" class="global-status" role="status" aria-live="polite" hidden></div>
+
+  <nav class="tabs" aria-label="页面分区">
+    <button class="tab active" data-view="overview">数据与模型</button>
+    <button class="tab" data-view="scenario">菜单情景</button>
+    <button class="tab" data-view="plan">套餐详情</button>
+    <button class="tab" data-view="search">组合搜索</button>
+    <button class="tab" data-view="method">口径说明</button>
+  </nav>
+
+  <main>
+    <!-- ===================== OVERVIEW ===================== -->
+    <section id="view-overview" class="view active">
+      <div class="section-head">
+        <div>
+          <h2>历史选择与模型拟合</h2>
+          <p class="lead">
+            每条记录保存当时真正能选到的套餐、各自价格、被选项或“都不选”。未展示的套餐不进入该次选择，
+            也不会被当作零次成交；同一提交编号只计一次。
+          </p>
+        </div>
+        <div class="section-actions">
+          <button id="reload-model" class="ghost" type="button">重新读取样本</button>
+        </div>
+      </div>
+
+      <div id="summary-tiles" class="tile-row" aria-label="样本摘要"></div>
+
+      <div class="grid two-one">
+        <article class="card">
+          <header class="card-head">
+            <h3>模型诊断</h3>
+            <p class="muted">拟合不收敛、完全分离、价格方向异常或属性共线时，这里的结论优先于任何份额数字。</p>
+          </header>
+          <div id="diagnostics" class="diagnostics"></div>
+          <footer id="model-footnote" class="card-foot"></footer>
+        </article>
+
+        <article class="card">
+          <header class="card-head">
+            <h3>样本构成</h3>
+            <p class="muted">记录数按整条选择计，不按展示过的套餐数计。</p>
+          </header>
+          <dl id="dataset-facts" class="facts"></dl>
+        </article>
+      </div>
+
+      <article class="card">
+        <header class="card-head">
+          <h3>系数与支付意愿</h3>
+          <p class="muted">
+            β 为原始单位系数；流量、语音按每 10GB / 100 分钟折算显示。支付意愿 = −β<sub>属性</sub> / β<sub>价格</sub>，
+            仅当价格系数为负且统计上可辨时才有意义。相关系数 ≥ 0.9 的属性对无法分开估计，表中会标出。
+          </p>
+        </header>
+        <div class="table-wrap">
+          <table class="data-table" id="coef-table">
+            <thead>
+              <tr>
+                <th>属性</th><th class="num">β（原始单位）</th><th class="num">每档 β</th>
+                <th class="num">标准误</th><th class="num">z</th><th class="num">p</th>
+                <th class="num">支付意愿</th><th>解读</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="table-foot">
+          <span id="coef-note" class="muted"></span>
+          <button class="ghost small" type="button" data-toggle-table="corr-heatmap">显示相关性矩阵</button>
+        </div>
+        <div id="corr-heatmap" class="heatmap-wrap" hidden>
+          <div id="corr-chart" class="heatmap"></div>
+          <p class="muted small">
+            相关矩阵基于历史菜单中实际展示的套餐属性。接近 ±1 的对说明二者在历史里几乎同步变化，
+            模型只能识别它们的合计效应。
+          </p>
+        </div>
+      </article>
+
+      <div class="grid two">
+        <article class="card">
+          <header class="card-head">
+            <h3>记录长什么样</h3>
+            <p class="muted">抽查 4 条记录：展示集合、当时价格、被选项。</p>
+          </header>
+          <div id="record-examples" class="record-list"></div>
+        </article>
+
+        <article class="card">
+          <header class="card-head">
+            <h3>展示次数与选择率</h3>
+            <p class="muted">选择率的分母是展示次数，不是总记录数。从未展示的套餐没有比率。</p>
+          </header>
+          <div class="table-wrap">
+            <table class="data-table compact" id="plan-table">
+              <thead>
+                <tr><th>套餐</th><th class="num">展示</th><th class="num">被选</th>
+                  <th class="num">选择率</th><th class="num">价格区间</th><th>状态</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+
+      <article class="card" id="quality-card">
+        <header class="card-head">
+          <h3>记录校验与重复提交</h3>
+          <p class="muted">先校验“被选项确实来自当时展示集合”，再进入拟合。未通过的记录会被列出，不会静默修补。</p>
+        </header>
+        <div id="quality-body" class="quality-body"></div>
+      </article>
+    </section>
+
+    <!-- ===================== SCENARIO ===================== -->
+    <section id="view-scenario" class="view">
+      <div class="section-head">
+        <div>
+          <h2>菜单情景：增加或撤下一款套餐</h2>
+          <p class="lead">
+            基准菜单是当前在售组合。勾选或取消勾选会改变情景菜单，所有份额来自同一次多项选择计算，
+            包括“都不选”。整组份额相加为 100%，不会把各套餐单独预测值相加。
+          </p>
+        </div>
+        <div class="section-actions">
+          <button id="reset-scenario" class="ghost" type="button">回到当前菜单</button>
+        </div>
+      </div>
+
+      <div id="scenario-warning" class="global-status warning" hidden></div>
+
+      <div class="grid menu-grid">
+        <article class="card">
+          <header class="card-head">
+            <h3>菜单编辑器</h3>
+            <p class="muted">价格为情景价，可改；成本用于利润计算。</p>
+          </header>
+          <div id="menu-editor" class="menu-editor"></div>
+          <div class="add-row">
+            <label class="field">
+              <span>添加套餐</span>
+              <select id="add-plan"></select>
+            </label>
+            <button id="add-plan-btn" class="primary" type="button">加入情景</button>
+          </div>
+          <p class="muted small">停售或未上市的样本套餐也可以加入情景，用于“如果当时有它”的对照。</p>
+        </article>
+
+        <article class="card">
+          <header class="card-head">
+            <h3>份额对比</h3>
+            <p class="muted">基准（当前菜单）与情景并列；最深的变化会被直接标注。</p>
+          </header>
+          <div id="share-chart" class="chart-block"></div>
+          <div class="table-foot">
+            <button class="ghost small" type="button" data-toggle-table="scenario-table">表格视图</button>
+          </div>
+          <div id="scenario-table" class="table-wrap" hidden></div>
+        </article>
+      </div>
+
+      <div class="tile-row" id="scenario-tiles"></div>
+
+      <div class="grid two">
+        <article class="card">
+          <header class="card-head">
+            <h3>替代份额：谁被挤掉了</h3>
+            <p class="muted">从基准到情景，每款套餐份额的增减；被撤下套餐的份额按同一多项选择分配到其余选项和“都不选”。</p>
+          </header>
+          <div id="displacement-chart" class="chart-block"></div>
+        </article>
+        <article class="card">
+          <header class="card-head">
+            <h3>点开一款套餐</h3>
+            <p class="muted">查看它的份额来自哪些旧选项，或撤下后流向哪里。</p>
+          </header>
+          <div id="scenario-plan-picker" class="chip-row"></div>
+          <div id="scenario-plan-summary" class="plan-summary"></div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ===================== PLAN DETAIL ===================== -->
+    <section id="view-plan" class="view">
+      <div class="section-head">
+        <div>
+          <h2>套餐详情与旧选项转移</h2>
+          <p class="lead">
+            选择一款套餐，查看它在当前菜单中的份额、加入时从哪里吸引份额、撤下时份额流向哪里。
+            转移量来自同一次多项选择计算，来源与去向会自动平衡。
+          </p>
+        </div>
+        <div class="section-actions">
+          <label class="field inline">
+            <span>套餐</span>
+            <select id="plan-select"></select>
+          </label>
+        </div>
+      </div>
+
+      <div id="plan-warning" class="global-status warning" hidden></div>
+
+      <div id="plan-hero" class="plan-hero"></div>
+
+      <div class="grid two">
+        <article class="card">
+          <header class="card-head">
+            <h3 id="plan-removal-title">撤下它：份额去向</h3>
+            <p id="plan-removal-sub" class="muted">括号内为占释放份额的比例。</p>
+          </header>
+          <div id="plan-removal-chart" class="chart-block"></div>
+        </article>
+        <article class="card">
+          <header class="card-head">
+            <h3 id="plan-addition-title">加入它：份额来源</h3>
+            <p id="plan-addition-sub" class="muted">从当前菜单中新增该套餐时，原有选项与“都不选”各让出多少。</p>
+          </header>
+          <div id="plan-addition-chart" class="chart-block"></div>
+        </article>
+      </div>
+
+      <article class="card">
+        <header class="card-head">
+          <h3>价格变化时它的份额</h3>
+          <p class="muted">只改这一款的价格，其他套餐和“都不选”不动；每次都按整份菜单重算。</p>
+        </header>
+        <div id="plan-sensitivity" class="chart-block"></div>
+      </article>
+
+      <article class="card">
+        <header class="card-head">
+          <h3>它在历史菜单中的位置</h3>
+          <p class="muted">该套餐被展示时的选择率、常见同场套餐，以及从未展示的记录如何处理。</p>
+        </header>
+        <div id="plan-history" class="plan-history"></div>
+      </article>
+    </section>
+
+    <!-- ===================== SEARCH ===================== -->
+    <section id="view-search" class="view">
+      <div class="section-head">
+        <div>
+          <h2>组合搜索：最多十个候选</h2>
+          <p class="lead">
+            在给定成本下，对候选套餐的所有组合（可限定菜单大小）逐一评估整组利润。每组候选作为一整份菜单进入
+            多项选择模型，利润 = Σ 份额×毛利，份额包含“都不选”；绝不把各套餐单独预测的利润相加。
+          </p>
+        </div>
+      </div>
+
+      <div id="search-warning" class="global-status warning" hidden></div>
+
+      <div class="grid search-grid">
+        <article class="card">
+          <header class="card-head">
+            <h3>候选与约束</h3>
+            <p class="muted">最多 10 个候选；成本可改，直接进入利润计算。</p>
+          </header>
+          <div id="candidate-list" class="candidate-list"></div>
+          <div class="constraint-row">
+            <label class="field">
+              <span>菜单最少套餐</span>
+              <input id="min-size" type="number" min="1" max="10" value="1" />
+            </label>
+            <label class="field">
+              <span>菜单最多套餐</span>
+              <input id="max-size" type="number" min="1" max="10" value="4" />
+            </label>
+            <label class="field">
+              <span>必须保留入门档</span>
+              <select id="must-include"><option value="">不限定</option></select>
+            </label>
+          </div>
+          <div class="add-row">
+            <button id="run-search" class="primary" type="button">搜索组合</button>
+            <span id="search-status" class="muted small"></span>
+          </div>
+          <div id="search-summary" class="search-summary"></div>
+        </article>
+
+        <article class="card">
+          <header class="card-head">
+            <h3>固定组合 vs 搜索结果</h3>
+            <p class="muted">固定组合 = 当前在售菜单；搜索结果 = 选中的候选组合。两者都按整组菜单计算。</p>
+          </header>
+          <div id="search-compare" class="search-compare"></div>
+        </article>
+      </div>
+
+      <article class="card">
+        <header class="card-head">
+          <h3>候选组合排名</h3>
+          <p class="muted">点击一行查看该组合的份额与替代明细。</p>
+        </header>
+        <div class="table-wrap">
+          <table class="data-table" id="search-results">
+            <thead>
+              <tr><th>#</th><th>组合</th><th class="num">菜单规模</th><th class="num">预计利润</th>
+                <th class="num">预计收入</th><th class="num">成交率</th><th class="num">较固定组合</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </article>
+
+      <div class="grid two">
+        <article class="card">
+          <header class="card-head">
+            <h3>选中组合的份额</h3>
+            <p class="muted">与固定组合并排；份额来自整组计算。</p>
+          </header>
+          <div id="search-share-chart" class="chart-block"></div>
+        </article>
+        <article class="card">
+          <header class="card-head">
+            <h3>替代明细</h3>
+            <p class="muted">相对固定组合，谁被替代、流向哪里。释放与承接必须相等。</p>
+          </header>
+          <div id="search-displacement" class="chart-block"></div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ===================== METHOD ===================== -->
+    <section id="view-method" class="view">
+      <div class="section-head">
+        <div>
+          <h2>口径与边界</h2>
+          <p class="lead">这一页解释数字是怎么来的，以及什么时候不应该用它给经营建议。</p>
+        </div>
+      </div>
+      <div class="grid two">
+        <article class="card prose">
+          <h3>历史记录</h3>
+          <ul>
+            <li>一条记录 = 一次选择：当时展示的套餐集合、每款的价格与属性、被选项或“都不选”。</li>
+            <li>后来才上市、已停售或当天未展示的套餐不进入该条记录的选择集；它们既不是零次成交，也不进似然。</li>
+            <li>拟合前先校验被选项是否在展示集合内；不通过则拒绝并列入诊断，不会猜测修正。</li>
+            <li>重复提交按提交编号（幂等键）去重；同一天、同一菜单、同一选择的两位不同用户各计一次。</li>
+          </ul>
+          <h3>模型</h3>
+          <ul>
+            <li>多项 Logit：效用 = 价格×β<sub>价格</sub> + 流量×β<sub>流量</sub> + 语音×β<sub>语音</sub> + 影音/家庭/终端权益 + 误差。</li>
+            <li>价格与流量按每 10 单位折算后估计，系数表同时给出原始单位值，避免“每 GB 几毛钱”这类误读。</li>
+            <li>支付意愿只在价格系数为负且显著时计算；价格系数为正或接近零时拒绝给出。</li>
+            <li>属性在历史菜单中同向变化（相关 ≥ 0.9）时，模型只能识别合计效应，页面会点名是哪一对。</li>
+          </ul>
+          <h3>情景与搜索</h3>
+          <ul>
+            <li>份额是一次多项选择里的概率，整组（含“都不选”）相加为 100%。</li>
+            <li>替代量由前后两次整组计算相减得到，释放份额与承接份额自动平衡。</li>
+            <li>组合利润按整组菜单计算；不使用“各套餐独立预测再相加”的口径。</li>
+            <li>搜索是候选集合上的穷举；候选最多 10 个，结果受样本内信息限制，不是市场预测。</li>
+          </ul>
+        </article>
+        <article class="card prose">
+          <h3>什么时候不给建议</h3>
+          <ul>
+            <li><strong>未收敛：</strong>迭代结束仍未达梯度阈值；任何份额都不可用。</li>
+            <li><strong>完全分离：</strong>某套餐展示即被选、或某属性完美预测选择；系数被推向边界。</li>
+            <li><strong>价格方向异常：</strong>价格系数非负，或为负但不显著；不能谈涨价/降价。</li>
+            <li><strong>信息矩阵奇异或病态：</strong>参数不可识别或标准误过大。</li>
+          </ul>
+          <p>出现以上情况时页面保留诊断，禁用情景与搜索按钮，并明确说明“不直接给经营建议”。</p>
+          <h3>数据来源</h3>
+          <ul>
+            <li>全部套餐、价格、成本、历史记录与情景均由本地脚本生成，是虚构样本。</li>
+            <li>不读取、不发送任何真实交易或用户数据；服务只监听本机回环地址。</li>
+            <li>样本清单与生成方式见 <code>app/synth.py</code>，可用 <code>python -m app.synth</code> 重建。</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+
+  <script src="/charts.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

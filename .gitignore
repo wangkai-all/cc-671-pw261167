@@ -32,3 +32,5 @@ test-results/
 *.sqlite3-shm
 *.sqlite3-journal
 !*.traineddata.gz
+# generated fictional samples (rebuild with `python3 -m app.synth`)
+data/
